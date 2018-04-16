@@ -13,9 +13,14 @@ const screenshot = document.getElementById('screen-shot');
 const screenshotMsg = document.getElementById('screenshot-path');
 const pathButton = document.getElementById('path-button');
 const casenameField = document.getElementById('casename');
+const socialmediaField = document.getElementById('socialmedia');
+const incidentdescriptionField = document.getElementById('incidentdescription');
+
 
 var directoryPath = '';
 var caseName = '';
+var socialMedia = '';
+var incidentDescription = '';
 
 pathButton.addEventListener('click', function(event) {
     dialog.showOpenDialog({
@@ -46,24 +51,60 @@ screenshot.addEventListener('click', function(event) {
         sources.forEach(function(source) {
             if (source.name === 'Entire Screen' || source.name === 'Entire screen' || source.name === 'Screen 1') {
 
+                // get values from form
                 caseName = casenameField.value;
-                if (directoryPath === '') {
-                    return displayError("Please Select a Path to save the screenshot to.");
-                }
+                socialMedia = socialmediaField.value;
+                incidentDescription = incidentdescriptionField.value;
+
+                if (directoryPath === '') return displayError("Please Select a Path to save the screenshot to.");
 
                 timestamp = new Date().getTime();
-                screenshotPath = path.join(directoryPath, caseName + '-' + timestamp + '.png');
+                screenshotFilename = caseName + '-' + timestamp + '.png';
+                screenshotPath = path.join(directoryPath, screenshotFilename);
 
                 fs.writeFile(screenshotPath, source.thumbnail.toPng(), function(error) {
                     if (error) return displayError(error.message);
 
                     shell.openExternal('file://' + screenshotPath);
                     screenshotMsg.textContent = 'Saved screenshot to: ' + screenshotPath;
+
+                    // if file was written, save to db as well
+                    updateDatabase(directoryPath, screenshotFilename, caseName, socialMedia, incidentDescription);
                 })
             }
         });
     });
 });
+
+function updateDatabase(directoryPath, screenshotFilename, caseName, socialMedia, incidentDescription) {
+    // open/read db
+    dbPath = path.join(directoryPath, "documentit-data.json");
+    try {
+        dbContents = fs.readFileSync(dbPath, {encoding: "utf8"});
+    } catch (err) {
+        console.log(err);
+        console.log("Unable to open database, starting new db.");
+        dbContents = "{}"; // file doesn't exist, create blank JSON
+    }
+    var database = JSON.parse(dbContents);
+
+    // init db if not init'd
+    // "cases" parent object
+    if (!database.hasOwnProperty('cases')) database.cases = {};
+    // each case is indexed by name (TODO: help users avoid typo'd case names)
+    if (!database.cases.hasOwnProperty(caseName)) database.cases[caseName] = {};
+
+    now = new Date(); // screenshots are indexed by unix timestamp
+    database.cases[caseName][now.getTime()] = {
+        'date': now.toLocaleString(), // human-readable duplicate of index time
+        'socialMedia': socialMedia,
+        'incidentDescription': incidentDescription,
+        'screenshotFilename': screenshotFilename
+    };
+
+    // write db. stringify with two spaces for human-readability
+    fs.writeFileSync(dbPath, JSON.stringify(database, null, '  '));
+}
 
 function displayError(message) {
     screenshotMsg.textContent = "ERROR: "+message;
